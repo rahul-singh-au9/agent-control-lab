@@ -84,6 +84,23 @@ describe('strict trace validation', () => {
     ).toThrow(/digest/);
   });
 
+  it.each(['events', 'labels', 'evidenceEventIds'] as const)(
+    'rejects excessive %s before validating thousands of malformed entries',
+    (field) => {
+      const trace = fixture();
+      const oversized = Array<null>(12_000).fill(null);
+      const input =
+        field === 'evidenceEventIds'
+          ? { ...trace, labels: [{ ...trace.labels![0], evidenceEventIds: oversized }] }
+          : { ...trace, [field]: oversized };
+      const text = JSON.stringify(input);
+      expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(MAX_TRACE_BYTES);
+      const path = field === 'evidenceEventIds' ? 'labels.0.evidenceEventIds' : field;
+      // A schema-first rejection would report an invalid null item instead of the count.
+      expect(() => parseTraceText(text)).toThrow(`${path}: Use at most 200 items.`);
+    },
+  );
+
   it('reports invalid JSON and refuses duplicate IDs or backwards sequence/time', () => {
     expect(() => parseTraceText('{')).toThrow(/Invalid JSON/);
     const trace = fixture();

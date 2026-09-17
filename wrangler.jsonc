@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "agent-control-lab",
+  "account_id": "9fa6b3dd10d11d3dee396ec7e58e49f7",
   "main": "worker/index.ts",
   "compatibility_date": "2026-09-17",
   "workers_dev": true,
@@ -14,7 +15,8 @@
     {
       "binding": "DB",
       "database_name": "agent-control-lab",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "e2802169-3e21-4619-98c7-2c016a649539",
+      "preview_database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations",
     },
   ],

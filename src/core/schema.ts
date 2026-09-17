@@ -125,6 +125,27 @@ function checkSize(text: string): void {
   }
 }
 
+function checkCollectionBounds(input: unknown): void {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return;
+  const trace = input as Record<string, unknown>;
+  const check = (value: unknown, path: string) => {
+    if (Array.isArray(value) && value.length > MAX_EVENTS) {
+      throw new Error(`${path}: Use at most ${MAX_EVENTS} items.`);
+    }
+  };
+
+  // Reject oversized collections before schema validation allocates errors for every item.
+  check(trace.events, 'events');
+  check(trace.labels, 'labels');
+  if (!Array.isArray(trace.labels)) return;
+  const labels: unknown[] = trace.labels;
+  for (let index = 0; index < labels.length; index++) {
+    const label = labels[index];
+    if (!label || typeof label !== 'object' || Array.isArray(label)) continue;
+    check((label as Record<string, unknown>).evidenceEventIds, `labels.${index}.evidenceEventIds`);
+  }
+}
+
 function validateTimeline(trace: Trace): void {
   const ids = new Set<string>();
   const grants = new Map<string, GrantEvent>();
@@ -212,6 +233,7 @@ export function parseTrace(input: unknown): Trace {
   }
   if (serialized === undefined) throw new Error('Trace must be a JSON object.');
   checkSize(serialized);
+  checkCollectionBounds(input);
   const result = traceSchema.safeParse(input);
   if (!result.success) {
     const issue = result.error.issues[0];
