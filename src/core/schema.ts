@@ -4,10 +4,26 @@ export const MAX_TRACE_BYTES = 64 * 1024;
 export const MAX_EVENTS = 200;
 export const SUPPORTED_TOOL = 'publish_artifact' as const;
 
-const identifier = z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/, 'Use a simple, nonempty identifier.');
-const shortText = z.string().min(1).max(200).refine((value) => value.trim().length > 0, 'Must not be blank.');
-const timestamp = z.string().datetime({ offset: true });
-const digest = z.string().regex(/^[a-f0-9]{64}$/, 'Expected a lowercase SHA-256 digest (64 hexadecimal characters).');
+const identifier = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/, 'Use a simple, nonempty identifier.');
+const shortText = z
+  .string()
+  .min(1)
+  .max(200)
+  .refine((value) => value.trim().length > 0, 'Must not be blank.');
+const timestamp = z
+  .string()
+  .datetime({ offset: true })
+  .refine(
+    (value) => !/\.\d{4,}/.test(value),
+    'Use at most three fractional second digits (millisecond precision).',
+  );
+const digest = z
+  .string()
+  .regex(/^[a-f0-9]{64}$/, 'Expected a lowercase SHA-256 digest (64 hexadecimal characters).');
 const source = z.enum(['authority', 'resource', 'agent', 'tool']);
 const common = {
   id: identifier,
@@ -24,12 +40,51 @@ const binding = {
 };
 
 const eventSchema = z.discriminatedUnion('type', [
-  z.strictObject({ ...common, type: z.literal('grant'), source: z.literal('authority'), grantId: identifier, ...binding, expiresAt: timestamp, maxUses: z.number().int().min(1).max(1000) }),
-  z.strictObject({ ...common, type: z.literal('revoke'), source: z.literal('authority'), grantId: identifier }),
-  z.strictObject({ ...common, type: z.literal('state'), source: z.literal('resource'), resource: identifier, version: identifier, digest }),
-  z.strictObject({ ...common, type: z.literal('proposal'), source: z.literal('agent'), actionId: identifier, grantId: identifier, tool: shortText, ...binding }),
-  z.strictObject({ ...common, type: z.literal('dispatch'), source: z.literal('tool'), actionId: identifier }),
-  z.strictObject({ ...common, type: z.literal('result'), source: z.literal('tool'), actionId: identifier, outcome: z.enum(['succeeded', 'failed']) }),
+  z.strictObject({
+    ...common,
+    type: z.literal('grant'),
+    source: z.literal('authority'),
+    grantId: identifier,
+    ...binding,
+    expiresAt: timestamp,
+    maxUses: z.number().int().min(1).max(1000),
+  }),
+  z.strictObject({
+    ...common,
+    type: z.literal('revoke'),
+    source: z.literal('authority'),
+    grantId: identifier,
+  }),
+  z.strictObject({
+    ...common,
+    type: z.literal('state'),
+    source: z.literal('resource'),
+    resource: identifier,
+    version: identifier,
+    digest,
+  }),
+  z.strictObject({
+    ...common,
+    type: z.literal('proposal'),
+    source: z.literal('agent'),
+    actionId: identifier,
+    grantId: identifier,
+    tool: shortText,
+    ...binding,
+  }),
+  z.strictObject({
+    ...common,
+    type: z.literal('dispatch'),
+    source: z.literal('tool'),
+    actionId: identifier,
+  }),
+  z.strictObject({
+    ...common,
+    type: z.literal('result'),
+    source: z.literal('tool'),
+    actionId: identifier,
+    outcome: z.enum(['succeeded', 'failed']),
+  }),
   z.strictObject({ ...common, type: z.literal('context'), source, content: z.string().max(8000) }),
 ]);
 
@@ -43,7 +98,11 @@ const referenceLabelSchema = z.strictObject({
 const traceSchema = z.strictObject({
   schemaVersion: z.literal(1),
   id: identifier,
-  title: z.string().min(1).max(160).refine((value) => value.trim().length > 0, 'Must not be blank.'),
+  title: z
+    .string()
+    .min(1)
+    .max(160)
+    .refine((value) => value.trim().length > 0, 'Must not be blank.'),
   origin: z.enum(['fixture', 'captured']),
   coverage: z.strictObject({
     authorization: z.enum(['complete', 'partial']),
@@ -79,7 +138,8 @@ function validateTimeline(trace: Trace): void {
 
   for (const event of trace.events) {
     if (ids.has(event.id)) throw new Error(`Duplicate event ID: ${event.id}.`);
-    if (event.seq <= lastSeq) throw new Error(`Event ${event.id}: sequence numbers must strictly increase.`);
+    if (event.seq <= lastSeq)
+      throw new Error(`Event ${event.id}: sequence numbers must strictly increase.`);
     const time = Date.parse(event.timestamp);
     if (time < lastTime) throw new Error(`Event ${event.id}: timestamps must not move backwards.`);
     ids.add(event.id);
@@ -88,17 +148,22 @@ function validateTimeline(trace: Trace): void {
 
     if (event.type === 'grant') {
       if (grants.has(event.grantId)) throw new Error(`Duplicate grant ID: ${event.grantId}.`);
-      if (Date.parse(event.expiresAt) <= time) throw new Error(`Grant ${event.grantId}: expiration must follow the grant time.`);
+      if (Date.parse(event.expiresAt) <= time)
+        throw new Error(`Grant ${event.grantId}: expiration must follow the grant time.`);
       grants.set(event.grantId, event);
     } else if (event.type === 'revoke') {
-      if (!grants.has(event.grantId)) throw new Error(`Event ${event.id}: cannot revoke an unknown or future grant.`);
-      if (revoked.has(event.grantId)) throw new Error(`Grant ${event.grantId} was already revoked.`);
+      if (!grants.has(event.grantId))
+        throw new Error(`Event ${event.id}: cannot revoke an unknown or future grant.`);
+      if (revoked.has(event.grantId))
+        throw new Error(`Grant ${event.grantId} was already revoked.`);
       revoked.add(event.grantId);
     } else if (event.type === 'state') {
       const resourceVersions = versions.get(event.resource) ?? new Map<string, string>();
       const previousDigest = resourceVersions.get(event.version);
       if (previousDigest && previousDigest !== event.digest) {
-        throw new Error(`Resource ${event.resource}: the same version cannot have different digests.`);
+        throw new Error(
+          `Resource ${event.resource}: the same version cannot have different digests.`,
+        );
       }
       resourceVersions.set(event.version, event.digest);
       versions.set(event.resource, resourceVersions);
@@ -106,12 +171,18 @@ function validateTimeline(trace: Trace): void {
       if (proposals.has(event.actionId)) throw new Error(`Duplicate action ID: ${event.actionId}.`);
       proposals.set(event.actionId, event);
     } else if (event.type === 'dispatch') {
-      if (!proposals.has(event.actionId)) throw new Error(`Event ${event.id}: dispatch requires an earlier proposal.`);
-      if (dispatched.has(event.actionId)) throw new Error(`Action ${event.actionId} was already dispatched. Retries need a new action ID.`);
+      if (!proposals.has(event.actionId))
+        throw new Error(`Event ${event.id}: dispatch requires an earlier proposal.`);
+      if (dispatched.has(event.actionId))
+        throw new Error(
+          `Action ${event.actionId} was already dispatched. Retries need a new action ID.`,
+        );
       dispatched.add(event.actionId);
     } else if (event.type === 'result') {
-      if (!dispatched.has(event.actionId)) throw new Error(`Event ${event.id}: result requires an earlier dispatch.`);
-      if (completed.has(event.actionId)) throw new Error(`Action ${event.actionId} already has a result.`);
+      if (!dispatched.has(event.actionId))
+        throw new Error(`Event ${event.id}: result requires an earlier dispatch.`);
+      if (completed.has(event.actionId))
+        throw new Error(`Action ${event.actionId} already has a result.`);
       completed.add(event.actionId);
     }
   }
@@ -119,11 +190,14 @@ function validateTimeline(trace: Trace): void {
   if (proposals.size === 0) throw new Error('Trace must contain at least one proposed action.');
   const labelledActions = new Set<string>();
   for (const label of trace.labels ?? []) {
-    if (!proposals.has(label.actionId)) throw new Error(`Label references unknown action: ${label.actionId}.`);
-    if (labelledActions.has(label.actionId)) throw new Error(`Duplicate label for action: ${label.actionId}.`);
+    if (!proposals.has(label.actionId))
+      throw new Error(`Label references unknown action: ${label.actionId}.`);
+    if (labelledActions.has(label.actionId))
+      throw new Error(`Duplicate label for action: ${label.actionId}.`);
     labelledActions.add(label.actionId);
     for (const id of label.evidenceEventIds) {
-      if (!ids.has(id)) throw new Error(`Label for ${label.actionId} references unknown evidence: ${id}.`);
+      if (!ids.has(id))
+        throw new Error(`Label for ${label.actionId} references unknown evidence: ${id}.`);
     }
   }
 }

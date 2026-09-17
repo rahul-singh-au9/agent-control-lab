@@ -10,12 +10,12 @@ An existing account can already be on Workers Paid. Check the account's plan bef
 
 Provider limits checked on 2026-09-17:
 
-| Resource | Free-plan allowance relevant to this application |
-| --- | --- |
-| Worker API | 100,000 requests per day and 10 ms CPU per invocation; network wait is distinct from CPU time. [Pricing](https://developers.cloudflare.com/workers/platform/pricing/) |
-| Static assets | Asset requests and storage are free. Keep `/api/*` as the Worker-first route so ordinary application assets do not invoke API code. [Billing and routing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) |
+| Resource      | Free-plan allowance relevant to this application                                                                                                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Worker API    | 100,000 requests per day and 10 ms CPU per invocation; network wait is distinct from CPU time. [Pricing](https://developers.cloudflare.com/workers/platform/pricing/)                                                                                              |
+| Static assets | Asset requests and storage are free. Keep `/api/*` as the Worker-first route so ordinary application assets do not invoke API code. [Billing and routing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)                        |
 | D1 operations | 5 million rows read and 100,000 rows written per day; reads measure rows scanned. Daily limits reset at 00:00 UTC. Queries fail at the free cap; they do not automatically switch to paid usage. [Pricing](https://developers.cloudflare.com/d1/platform/pricing/) |
-| D1 storage | 500 MB per database, 5 GB per account, 10 databases, and seven days of Time Travel recovery. [Limits](https://developers.cloudflare.com/d1/platform/limits/) |
+| D1 storage    | 500 MB per database, 5 GB per account, 10 databases, and seven days of Time Travel recovery. [Limits](https://developers.cloudflare.com/d1/platform/limits/)                                                                                                       |
 
 Limits are shared with other workloads on the account. A stored-report cap does not cap requests, scanned rows, or total write churn. Review these allowances again before a deployment or a substantial traffic increase.
 
@@ -38,6 +38,8 @@ Insertion must enforce capacity atomically. The database counter and report rows
 The session cookie is the credential for saved reports. The intended production cookie has 32 random bytes, `HttpOnly`, `Secure`, and `SameSite=Strict`; D1 stores a derived owner identifier rather than the raw cookie. Reports are scoped to that owner for every read and deletion.
 
 Clearing cookies, changing browsers, or losing the device loses access to that session's reports. There is no email login, password reset, identity verification, or account-recovery service. JSON export/import restores report content into a new session; it does not restore the old credential or unlock old server records. Export useful reports before clearing site data. Exported files are readable data and should be handled accordingly.
+
+Session creation requires an empty JSON object within 1 KiB. Modern browsers serialize first-time session initialization across tabs using Web Locks, with a 30-second acquisition deadline; requests have a 12-second deadline. Browsers without Web Locks retain same-page coalescing. Saves are not idempotent: if a response is lost after commit, refresh the library before retrying to avoid an extra copy.
 
 Validate and redact traces before saving. Schema validation is not secret detection or personal-data redaction. Use synthetic or deliberately sanitized examples for a public demonstration. Cloudflare and the deployment operator can administer the database; these reports are not end-to-end encrypted.
 
@@ -72,6 +74,8 @@ After deployment, verify HTTPS cookie flags, two-browser report isolation, disal
 ## Monitoring and incidents
 
 Use the provider's existing request/error and D1 usage views. Never log session cookies, trace bodies, tool arguments, personal data, or exported reports. Log only operational identifiers and non-sensitive error categories. Sampling does not make sensitive logging acceptable.
+
+Cleanup completion logs report `databaseChanges`, which includes trigger mutations in D1. Do not interpret this as the number of deleted report rows. Known API paths reject unsupported methods with 405 and an Allow header; unknown paths return 404. Private responses are noncacheable and carry same-origin resource policy headers.
 
 For repeated 429 responses, wait for the interval rather than looping retries. For capacity or provider-limit failures, keep the browser evaluator available and investigate usage. For an authorization defect, disable report access first, preserve only the operational evidence needed to diagnose it, and fix the defect before reopening storage.
 

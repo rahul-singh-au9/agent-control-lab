@@ -32,11 +32,14 @@ Open `http://127.0.0.1:8787`. This serves the production frontend and Worker API
 ```sh
 npm run check
 npm run audit:dependencies
-npx playwright install chromium
+npx playwright install chromium firefox webkit
 npm run test:e2e
+npm run test:coverage
 ```
 
-`npm run check` runs strict TypeScript checks, engine/API tests, and the production build. Browser tests start an isolated backend on port 8788 with their own `.wrangler/test-state` database. They do not use the manual preview's records or rate-limit counters. CI repeats these checks on Linux.
+`npm run check` runs typed linting, formatting checks, strict TypeScript checks, engine/API/client tests, and the production build. Browser tests run Chromium, Firefox and WebKit against separate local backends on ports 8788, 8792 and 8793, with `.wrangler/test-<browser>` databases. They do not use the manual preview's records or rate-limit counters. CI is configured to repeat the checks on Linux; hosted execution requires publishing the repository.
+
+With the local preview running, `npm run record:walkthrough` records real browser workflows to `.artifacts/walkthrough`. The recording uses synthetic examples, saves and deletes its own report, and explicitly injects a storage failure for one demonstration. `node scripts/recovery-rehearsal.mjs` rehearses migration, SQL backup/restore and scheduled cleanup using fresh isolated local databases. `npm run preview:walkthrough` serves the prepared chapter player at `http://127.0.0.1:8795` with video range/seek support. See [Verification](docs/VERIFICATION.md) for results and [Engineering review](docs/ENGINEERING_REVIEW.md) for security and maintenance boundaries.
 
 ## Architecture
 
@@ -54,7 +57,7 @@ React + TypeScript
 
 React matches the portfolio's existing frontend stack. A shared TypeScript schema prevents frontend/backend input drift. Vite produces static assets, while one Worker and one D1 database provide persistence without a separate server or authentication provider. Prepared SQLite statements keep deployment and migration simple. The evaluator has no network access or runtime scripting interface.
 
-Dependencies are pinned in `package-lock.json`. Stable releases were checked on 2026-09-17. The intentionally narrow product does not depend on a browser model download, hosted inference, external tool credentials or a beta application framework.
+Dependencies are pinned in `package-lock.json`. Releases and peer compatibility were checked on 2026-09-17. TypeScript 6.0.3 is intentionally retained because the selected typed-linting release supports TypeScript below 6.1; forcing the newer compiler past its peer range would weaken tool compatibility. The intentionally narrow product does not depend on a browser model download, hosted inference, external tool credentials or a beta application framework.
 
 ## Deploy without charges
 
@@ -75,7 +78,7 @@ npm run deploy
 
 The native rate-limit binding must be available without enabling a paid add-on. If the account rejects it, resolve free-plan support before deployment; do not bypass abuse protection. Remote resources and a live deployment are not created by `npm run check`.
 
-To verify a deployment, set `BASE_URL` to its actual HTTPS URL and run `npm run test:e2e`. This creates synthetic test reports and deletes them. Run only against your own deployment. Wait at least a minute between repeated live runs so the shared-IP write limiter can recover.
+To verify a deployment, set `BASE_URL` to its actual HTTPS URL and run `npm run test:e2e -- --project=chromium`, then the Firefox and WebKit projects separately. This creates synthetic test reports and deletes them. Run only against your own deployment. Wait at least a minute between browser projects and repeated live runs so the shared-IP write limiter can recover. Local projects have independent limiters; all projects pointed at one public URL share that deployment's IP allowance.
 
 Workers Free permits 100,000 API requests/day and 10 ms CPU/request. D1 includes 5 million rows read/day, 100,000 rows written/day, and 500 MB per Free database. Static-asset requests are free. Application limits bound stored traces to roughly 125 MiB before index/row overhead; traffic can still exhaust daily quotas. Availability and limits can change. See [Operations](docs/OPERATIONS.md) for verified sources, retention, backups, rollback, and recovery procedures.
 
