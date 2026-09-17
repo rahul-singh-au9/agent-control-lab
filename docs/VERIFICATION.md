@@ -9,7 +9,7 @@ Date: 2026-09-17. Scope: local release candidate on macOS ARM64, Node 24.21.0, C
 | Check | Result |
 | --- | --- |
 | Strict TypeScript | Passed |
-| Engine and API tests | 37 passed across two files |
+| Engine, API and browser-client tests | 41 passed across three files |
 | Production build | Passed |
 | Chromium browser tests | 6 passed |
 | Dependency audit | 0 reported vulnerabilities at the time of checking |
@@ -27,14 +27,16 @@ Accessibility checks use axe WCAG 2 A/AA and 2.1 AA rules. No serious or critica
 ## Measured local performance
 
 - A valid trace with exactly **65,536 UTF-8 bytes, 200 events and 80 labelled proposals** evaluated in a median **0.590 ms** across 15 measurements after three warmups in the final unit run. The regression threshold is 100 ms. Timing includes validation and both policies.
-- Application JavaScript and CSS totaled **114,249 bytes gzip**, below the 250 KiB target.
-- The local browser usability check completed in **589 ms**, including a 500 ms network-idle observation, below its conservative 10-second smoke-test threshold. It is not a mobile-network or Core Web Vitals measurement.
+- Application JavaScript and CSS totaled **114,274 bytes gzip**, below the 250 KiB target.
+- The local browser usability check completed in **587 ms**, including a 500 ms network-idle observation, below its conservative 10-second smoke-test threshold. It is not a mobile-network or Core Web Vitals measurement.
 
 These measurements describe this machine and input. They do not establish Cloudflare CPU usage, global latency, sustained concurrency, or availability.
 
 ## Corrections during verification
 
 The first accessibility run found low-contrast text and undersized labels; both were corrected before the passing run. A stronger keyboard assertion found missing focus restoration after import; dialog cleanup now restores focus. Repeated tests against a shared preview hit the intended limiter, so browser tests now use an isolated backend/database on port 8788 rather than the interactive preview's allowance.
+
+Concurrent session requests from startup and a quick save now share one in-flight lookup/creation, preventing competing cookie credentials in the same page. Four focused client tests cover coalescing and recovery after lookup or creation failures. This is not a cross-tab account synchronization system.
 
 ## Outstanding release steps
 

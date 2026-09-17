@@ -65,12 +65,22 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 }
 
+let sessionRequest: Promise<SessionInfo> | null = null;
+
 export async function ensureSession(): Promise<SessionInfo> {
+  if (sessionRequest) return sessionRequest;
+  sessionRequest = (async () => {
+    try {
+      return await request<SessionInfo>('/api/session');
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 401) throw error;
+      return request<SessionInfo>('/api/session', { method: 'POST', body: '{}' });
+    }
+  })();
   try {
-    return await request<SessionInfo>('/api/session');
-  } catch (error) {
-    if (!(error instanceof ApiError) || error.status !== 401) throw error;
-    return request<SessionInfo>('/api/session', { method: 'POST', body: '{}' });
+    return await sessionRequest;
+  } finally {
+    sessionRequest = null;
   }
 }
 
