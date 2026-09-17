@@ -1,0 +1,181 @@
+import { parseTrace, MAX_TRACE_BYTES } from '../src/core/schema';
+
+export interface Env {
+  DB: D1Database;
+  ASSETS: Fetcher;
+  WRITE_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  APP_VERSION?: string;
+}
+
+const DAY = 86_400_000;
+const MAX_REPORTS = 20;
+const MAX_TOTAL_REPORTS = 2_000;
+const RETENTION_DAYS = 30;
+const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+
+class HttpError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+
+function json(data: unknown, status = 200, extra: HeadersInit = {}): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
+      ...extra,
+    },
+  });
+}
+
+function cookieName(url: URL): string {
+  return url.protocol === 'https:' ? '__Host-acl_session' : 'acl_session';
+}
+
+function sessionToken(request: Request, url: URL): string | undefined {
+  const prefix = `${cookieName(url)}=`;
+  const matching = request.headers.get('Cookie')?.split(';').map(s => s.trim()).filter(s => s.startsWith(prefix)) ?? [];
+  const value = matching.length === 1 ? matching[0].slice(prefix.length) : undefined;
+  return value && /^[a-f0-9]{64}$/.test(value) ? value : undefined;
+}
+
+async function ownerId(token: string): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function requireSameOrigin(request: Request, url: URL): void {
+  if (request.headers.get('Origin') !== url.origin || request.headers.get('Sec-Fetch-Site') === 'cross-site') {
+    throw new HttpError(403, 'This request must come from the application on this origin.');
+  }
+  if (request.method === 'POST' && request.headers.get('Content-Type')?.split(';')[0].trim() !== 'application/json') {
+    throw new HttpError(415, 'Use an application/json request.');
+  }
+}
+
+async function readBoundedJson(request: Request): Promise<unknown> {
+  const limit = MAX_TRACE_BYTES + 1_024;
+  if (Number(request.headers.get('Content-Length')) > limit) throw new HttpError(413, 'Trace exceeds the 64 KiB limit.');
+  const reader = request.body?.getReader();
+  if (!reader) throw new HttpError(400, 'A JSON request body is required.');
+  let size = 0;
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) { await reader.cancel(); throw new HttpError(413, 'Trace exceeds the 64 KiB limit.'); }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+  catch { throw new HttpError(400, 'The request is not valid UTF-8 JSON.'); }
+}
+
+async function api(request: Request, env: Env, url: URL): Promise<Response> {
+  const now = Date.now();
+  const method = request.method;
+  const path = url.pathname;
+  if (!['GET', 'POST', 'DELETE'].includes(method)) throw new HttpError(405, 'Method not supported.');
+
+  if (path === '/api/health' && method === 'GET') {
+    const ready = await env.DB.prepare('SELECT id FROM capacity WHERE id = 1').first();
+    if (!ready) throw new Error('Database schema is not ready');
+    return json({ ok: true, version: env.APP_VERSION ?? '1.0.0' });
+  }
+
+  if (method !== 'GET') {
+    requireSameOrigin(request, url);
+    // Cloudflare supplies this header in production. The limiter is best-effort per location.
+    const result = await env.WRITE_LIMITER.limit({ key: request.headers.get('CF-Connecting-IP') ?? 'local' });
+    if (!result.success) throw new HttpError(429, 'Too many changes. Wait one minute and try again.');
+  }
+
+  let token = sessionToken(request, url);
+  if (path === '/api/session') {
+    if (!['GET', 'POST'].includes(method)) throw new HttpError(405, 'Method not supported.');
+    if (!token && method === 'GET') throw new HttpError(401, 'Create a browser workspace first.');
+    if (!token) {
+      token = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('');
+    }
+    return json({ retentionDays: RETENTION_DAYS, maxReports: MAX_REPORTS }, 200, {
+      'Set-Cookie': `${cookieName(url)}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${RETENTION_DAYS * 86400}${url.protocol === 'https:' ? '; Secure' : ''}`,
+    });
+  }
+  if (!token) throw new HttpError(401, 'Your browser workspace is unavailable. Reload to create a new one.');
+  const owner = await ownerId(token);
+
+  if (path === '/api/reports' && method === 'GET') {
+    const rows = await env.DB.prepare('SELECT id, title, origin, created_at, action_count FROM reports WHERE owner_id = ? AND expires_at > ? ORDER BY created_at DESC, id DESC LIMIT 20').bind(owner, now).all<ReportRow>();
+    return json({ reports: rows.results.map(metadata) });
+  }
+  if (path === '/api/reports' && method === 'POST') {
+    const body = await readBoundedJson(request);
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).join(',') !== 'trace') {
+      throw new HttpError(400, 'Expected a JSON object containing only trace.');
+    }
+    let trace;
+    try { trace = parseTrace((body as { trace: unknown }).trace); }
+    catch (error) { throw new HttpError(400, error instanceof Error ? error.message : 'Invalid trace.'); }
+    const serialized = JSON.stringify(trace);
+    if (new TextEncoder().encode(serialized).byteLength > MAX_TRACE_BYTES) throw new HttpError(413, 'Trace exceeds the 64 KiB limit.');
+    const id = crypto.randomUUID();
+    const count = trace.events.filter(event => event.type === 'proposal').length;
+    // One statement serializes concurrent capacity checks with the insertion.
+    const result = await env.DB.prepare(`INSERT INTO reports (id, owner_id, title, origin, created_at, expires_at, action_count, trace)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE (SELECT report_count FROM capacity WHERE id = 1) < ?
+      AND (SELECT COUNT(*) FROM reports WHERE owner_id = ? AND expires_at > ?) < ?`)
+      .bind(id, owner, trace.title, trace.origin, now, now + RETENTION_DAYS * DAY, count, serialized, MAX_TOTAL_REPORTS, owner, now, MAX_REPORTS).run();
+    if (!result.meta.changes) throw new HttpError(409, 'Storage limit reached. Export and delete older reports, or keep auditing locally.');
+    return json({ report: { id, title: trace.title, origin: trace.origin, createdAt: new Date(now).toISOString(), actionCount: count, trace } }, 201);
+  }
+
+  const id = path.startsWith('/api/reports/') ? path.slice('/api/reports/'.length) : '';
+  if (!uuid.test(id)) throw new HttpError(404, 'Report or endpoint not found.');
+  if (method === 'GET') {
+    const row = await env.DB.prepare('SELECT id, title, origin, created_at, action_count, trace FROM reports WHERE id = ? AND owner_id = ? AND expires_at > ?').bind(id, owner, now).first<ReportRow>();
+    if (!row) throw new HttpError(404, 'Report not found in this browser workspace.');
+    return json({ report: { ...metadata(row), trace: JSON.parse(row.trace!) } });
+  }
+  if (method === 'DELETE') {
+    const result = await env.DB.prepare('DELETE FROM reports WHERE id = ? AND owner_id = ? AND expires_at > ?').bind(id, owner, now).run();
+    if (!result.meta.changes) throw new HttpError(404, 'Report not found in this browser workspace.');
+    return json({ ok: true });
+  }
+  throw new HttpError(405, 'Method not supported.');
+}
+
+interface ReportRow { id: string; title: string; origin: string; created_at: number; action_count: number; trace?: string }
+function metadata(row: ReportRow) {
+  return { id: row.id, title: row.title, origin: row.origin, createdAt: new Date(row.created_at).toISOString(), actionCount: row.action_count };
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
+    const requestId = crypto.randomUUID();
+    try {
+      const response = await api(request, env, url);
+      response.headers.set('X-Request-ID', requestId);
+      return response;
+    } catch (error) {
+      const status = error instanceof HttpError ? error.status : 503;
+      if (status === 503) console.error(JSON.stringify({ event: 'api_unavailable', requestId, errorType: error instanceof Error ? error.name : 'Unknown' }));
+      return json({ error: error instanceof HttpError ? error.message : 'Saved reports are temporarily unavailable. You can still audit and export locally.', requestId }, status, {
+        'X-Request-ID': requestId,
+        ...(status === 429 ? { 'Retry-After': '60' } : {}),
+      });
+    }
+  },
+  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+    const result = await env.DB.prepare('DELETE FROM reports WHERE expires_at <= ?').bind(Date.now()).run();
+    console.log(JSON.stringify({ event: 'expired_reports_deleted', count: result.meta.changes }));
+  },
+};
