@@ -119,9 +119,16 @@ export type GrantEvent = Extract<TraceEvent, { type: 'grant' }>;
 export type ProposalEvent = Extract<TraceEvent, { type: 'proposal' }>;
 export type StateEvent = Extract<TraceEvent, { type: 'state' }>;
 
+export class TraceSizeError extends Error {
+  constructor() {
+    super('Trace exceeds the 64 KiB limit. Import a smaller, redacted trace.');
+    this.name = 'TraceSizeError';
+  }
+}
+
 function checkSize(text: string): void {
   if (new TextEncoder().encode(text).byteLength > MAX_TRACE_BYTES) {
-    throw new Error('Trace exceeds the 64 KiB limit. Import a smaller, redacted trace.');
+    throw new TraceSizeError();
   }
 }
 
@@ -254,4 +261,78 @@ export function parseTraceText(text: string): Trace {
     throw new Error('Invalid JSON. Import a raw trace JSON file.');
   }
   return parseTrace(input);
+}
+
+/** Initialize lazy validation paths during Worker startup, before the request CPU budget. */
+export function initializeTraceValidation(): void {
+  const stamp = (seq: number) => ({
+    id: `event-${seq}`,
+    seq,
+    timestamp: new Date(Date.UTC(2026, 0, 15, 9, 0, seq)).toISOString(),
+  });
+  const binding = {
+    actor: 'publisher',
+    session: 'session-1',
+    resource: 'release-brief',
+    destination: 'internal-review',
+    version: 'v1',
+    digest: 'a'.repeat(64),
+  };
+  const proposal = (seq: number): ProposalEvent => ({
+    ...stamp(seq),
+    type: 'proposal',
+    source: 'agent',
+    grantId: 'grant-1',
+    tool: SUPPORTED_TOOL,
+    ...binding,
+    actionId: `publish-${seq}`,
+  });
+  const trace: Trace = {
+    schemaVersion: 1,
+    id: 'validation-initialization',
+    title: 'Validation initialization',
+    origin: 'fixture',
+    coverage: { authorization: 'complete', resourceState: 'complete' },
+    events: [
+      {
+        ...stamp(1),
+        type: 'state',
+        source: 'resource',
+        resource: binding.resource,
+        version: binding.version,
+        digest: binding.digest,
+      },
+      {
+        ...stamp(2),
+        type: 'grant',
+        source: 'authority',
+        grantId: 'grant-1',
+        ...binding,
+        expiresAt: '2026-01-16T00:00:00Z',
+        maxUses: 1000,
+      },
+      { ...stamp(3), type: 'context', source: 'tool', content: '' },
+      proposal(4),
+      { ...stamp(5), type: 'dispatch', source: 'tool', actionId: 'publish-4' },
+      { ...stamp(6), type: 'result', source: 'tool', actionId: 'publish-4', outcome: 'succeeded' },
+      { ...stamp(7), type: 'revoke', source: 'authority', grantId: 'grant-1' },
+    ],
+    labels: [],
+  };
+  // One bounded seed initializes every event variant, collection and timeline path.
+  for (let seq = 8; seq <= MAX_EVENTS; seq++) {
+    trace.events.push(
+      seq <= 86 ? proposal(seq) : { ...stamp(seq), type: 'context', source: 'tool', content: '' },
+    );
+  }
+  trace.labels = trace.events
+    .filter((event): event is ProposalEvent => event.type === 'proposal')
+    .map((event) => ({
+      actionId: event.actionId,
+      expected: 'unknown',
+      ruleId: 'initialization',
+      evidenceEventIds: [event.id],
+    }));
+  // Exercise the bounded parser during startup; outputs are discarded, never cached.
+  for (let iteration = 0; iteration < 10; iteration++) parseTrace(trace);
 }

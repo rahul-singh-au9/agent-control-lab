@@ -9,7 +9,7 @@ Reviewed 2026-09-17. This is a bounded offline trace-auditing product with optio
 - Successful API responses are validated before entering UI state. Stored trace bodies are validated again on reads. Errors remain actionable to the user without exposing stored content or server exception details.
 - Request generations prevent obsolete work from replacing newer UI actions. Requests and cross-tab session-lock acquisition have finite deadlines. Uncertain saves are not automatically retried.
 - Production code does not use dynamic execution, arbitrary policy scripts, external URL fetching, raw HTML rendering or string-interpolated SQL. Imported content is rendered as text.
-- Pinned dependencies, a lockfile, read-only CI permissions and pinned action revisions make changes reviewable. Dependency update configuration proposes updates; it does not merge them automatically. Hosted CI and update jobs have not run yet.
+- Pinned dependencies, a lockfile, read-only CI permissions and pinned action revisions make changes reviewable. Dependency update configuration proposes updates; it does not merge them automatically. Hosted CI passed, and dependency update jobs have proposed changes for separate review.
 - Typed linting follows the [typescript-eslint type-information configuration](https://typescript-eslint.io/getting-started/typed-linting/); React hook checks follow the [React rule documentation](https://react.dev/reference/eslint-plugin-react-hooks). TypeScript 6.0.3 satisfies the parser's declared supported range; unsupported peer dependencies are not forced.
 
 ## Security boundaries reviewed
@@ -17,14 +17,14 @@ Reviewed 2026-09-17. This is a bounded offline trace-auditing product with optio
 | Boundary             | Implementation and verification                                                                                                                                                          |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Anonymous credential | 32 random bytes, HttpOnly, SameSite Strict, Secure on HTTPS, host-prefixed production cookie; only a digest is stored as owner identity. Raw cookies are not logged or returned in JSON. |
-| Record ownership     | Every record read/delete is owner-scoped. Cross-browser isolation is exercised against actual local Worker/D1 bindings in three browser engines.                                         |
+| Record ownership     | Every record read/delete is owner-scoped. Cross-browser isolation is exercised against actual local and remote Worker/D1 bindings in three browser engines.                              |
 | Mutation origin      | Exact same-origin requests and fetch metadata checks; JSON content type and bounded request bodies. Cross-origin mutations and malformed cookies are rejected.                           |
 | Imported data        | Strict fields, references, monotonic sequence/time, UTF-8 byte/event caps, fatal file decoding, bounded JSON nesting at the API, and digest checks when supplied.                        |
 | Content rendering    | React text escaping; no trace URL fetching; CSP, frame denial, nosniff, same-origin resource policy and no-store API responses. Hostile title text is tested in the browser.             |
 | Storage capacity     | Atomic owner/global admission, trigger-maintained counters, immediate expiry filtering and scheduled cleanup. Concurrency and failed cleanup recovery are tested.                        |
 | Abuse protection     | Native write limiting fails closed when unavailable. It is approximate per location; exact storage caps are separate database invariants.                                                |
 | Failure behavior     | Malformed successful responses, service errors, rate limits, timeouts and cancellation do not become saved success. Local evaluation and export stay available.                          |
-| Recovery             | Isolated SQL export/restore preserves indexes, triggers and migration history. The actual local scheduled handler removes expired rows and is repeatable.                                |
+| Recovery             | Isolated SQL export/restore preserves indexes, triggers and migration history. Actual local and remote scheduled cleanup remove expired synthetic rows and retain unexpired rows.        |
 
 ## Corrections from this review
 
@@ -36,6 +36,7 @@ Reviewed 2026-09-17. This is a bounded offline trace-auditing product with optio
 6. Corrected oversized input status codes, bounded session payloads, route/method handling and deep-input failure behavior.
 7. Fixed mobile long-text overflow, focus trapping, focus restoration and resize recovery.
 8. Corrected cleanup logging: D1 mutation counts include trigger updates, so logs now say database changes rather than overstating deleted report counts.
+9. Rejected oversized event, label and evidence-reference arrays before schema validation can allocate thousands of per-item errors. Malformed arrays can fit within the byte limit, so collection limits must apply before item validation.
 
 ## Performance and remaining limits
 
@@ -47,4 +48,4 @@ Save requests are not idempotent. A response lost after the database commits can
 
 Trace provenance, labels and declared completeness are assertions. A digest detects changes to the normalized trace, not authenticity. Proposal recommendations neither reserve a grant use nor enforce dispatch-time authorization. This is not a runtime safety gateway or proof of AGI safety.
 
-Remote HTTPS behavior, native binding entitlement, D1/Worker CPU and request limits, and deployed scheduled cleanup remain release gates. Hosted Linux CI has passed; the [verification record](VERIFICATION.md) links the run and its tested revision. Automated accessibility checks complement the tested keyboard/visual review; they are not a screen-reader certification or a physical-device test matrix.
+The public deployment passed remote HTTPS, persistence/isolation, native limiter and actual scheduled-cleanup checks on Workers Free. Initial maximum-payload CPU exceeded 10 ms in several successful requests. Bounded startup initialization and removal of a duplicate serialization pass reduced the final sampled saves to 4–8 ms and reads to 4–6 ms. These observations do not guarantee headroom for every invocation; the [verification record](VERIFICATION.md) reports exact values and hosted CI revisions. Automated accessibility checks complement the tested keyboard/visual review; they are not a screen-reader certification or a physical-device test matrix.

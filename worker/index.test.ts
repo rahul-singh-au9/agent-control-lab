@@ -374,6 +374,26 @@ describe('private report API', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM reports').get()?.n).toBe(1);
   });
 
+  it('enforces normalized trace bytes when compact numeric notation fits the request limit', async () => {
+    const cookie = await session();
+    const trace = sizedTrace(MAX_TRACE_BYTES - 13);
+    trace.events[trace.events.length - 1].seq = 1e15;
+    expect(new TextEncoder().encode(JSON.stringify(trace)).byteLength).toBe(MAX_TRACE_BYTES + 1);
+    const body = JSON.stringify({ trace }).replace('"seq":1000000000000000', '"seq":1e15');
+    expect(new TextEncoder().encode(body).byteLength).toBeLessThan(MAX_TRACE_BYTES);
+    const response = await worker.fetch(
+      new Request(`${origin}/api/reports`, {
+        method: 'POST',
+        headers: { Origin: origin, Cookie: cookie, 'Content-Type': 'application/json' },
+        body,
+      }),
+      env,
+    );
+    expect(response.status).toBe(413);
+    expect((await response.json<TestPayload>()).error).toContain('64 KiB');
+    expect(db.prepare('SELECT COUNT(*) AS n FROM reports').get()?.n).toBe(0);
+  });
+
   it('rejects bounded deeply nested input without reporting an infrastructure failure', async () => {
     const cookie = await session();
     const boundedBody = '{"trace":' + '['.repeat(12_000) + 'null' + ']'.repeat(12_000) + '}';

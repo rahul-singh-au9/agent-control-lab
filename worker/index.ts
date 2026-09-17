@@ -1,4 +1,11 @@
-import { parseTrace, MAX_TRACE_BYTES } from '../src/core/schema';
+import {
+  initializeTraceValidation,
+  parseTrace,
+  MAX_TRACE_BYTES,
+  TraceSizeError,
+} from '../src/core/schema';
+
+initializeTraceValidation();
 
 export interface Env {
   DB: D1Database;
@@ -192,19 +199,14 @@ async function api(request: Request, env: Env, url: URL): Promise<Response> {
       throw new HttpError(400, 'Expected a JSON object containing only trace.');
     }
     const input = (body as { trace: unknown }).trace;
-    let inputJson: string;
-    try {
-      inputJson = JSON.stringify(input);
-    } catch {
-      throw new HttpError(400, 'Trace structure is too deeply nested.');
-    }
-    if (new TextEncoder().encode(inputJson).byteLength > MAX_TRACE_BYTES)
-      throw new HttpError(413, 'Trace exceeds the 64 KiB limit.');
     let trace;
     try {
       trace = parseTrace(input);
     } catch (error) {
-      throw new HttpError(400, error instanceof Error ? error.message : 'Invalid trace.');
+      throw new HttpError(
+        error instanceof TraceSizeError ? 413 : 400,
+        error instanceof Error ? error.message : 'Invalid trace.',
+      );
     }
     const serialized = JSON.stringify(trace);
     if (new TextEncoder().encode(serialized).byteLength > MAX_TRACE_BYTES)

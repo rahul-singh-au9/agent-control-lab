@@ -49,7 +49,7 @@ Cloudflare's native [Rate Limiting binding](https://developers.cloudflare.com/wo
 
 Counters are approximate, eventually consistent, and local to a Cloudflare location. They cannot enforce an exact global storage or spending budget. An IP limit may affect unrelated people behind a shared network, while a session-only limit can be bypassed by minting new sessions. Production must not silently bypass protection when a required binding is missing or fails.
 
-The reviewed native-binding documentation does not publish a separate price or explicitly establish a Free-plan entitlement. Do not infer entitlement from its example of an application's “free users.” Confirm availability without activating a paid feature before making this binding a deployment dependency. A rejected deployment is preferable to a paid upgrade.
+On 2026-09-17, this application's native binding deployed successfully on an account whose dashboard showed Workers Free ($0), without a plan upgrade. A bounded live probe observed a 429 response and subsequent recovery after the cooldown. This verifies this deployment's availability, not a permanent entitlement for every account. Confirm the selected account's plan and binding availability before a new deployment; do not activate a paid feature to bypass a rejected deployment.
 
 Cloudflare documents [local simulation support](https://developers.cloudflare.com/workers/local-development/bindings-per-env/) for both D1 and rate limiting. Test against local bindings. A deterministic test double is suitable for testing the 429 branch, but it does not demonstrate distributed rate-limit accuracy.
 
@@ -67,7 +67,7 @@ npm run audit:dependencies
 
 Run `npm run preview` to serve the production build with local Worker/D1 bindings. It uses `--local`; no production database should be involved in local tests. A development server is not a deployment.
 
-For an authorized deployment, select a verified Workers Free account, create a D1 database named `agent-control-lab`, and replace the all-zero `database_id` in `wrangler.jsonc` with its identifier. Apply remote migrations with `npm run db:migrate:remote`, then deploy with `npm run deploy`. These commands mutate the selected Cloudflare account and database. Review the account identifier and migration before running them.
+For an authorized deployment, select a verified Workers Free account, create a D1 database named `agent-control-lab`, and set `account_id` and the production `database_id` in `wrangler.jsonc` to the intended account and database. The checked-in IDs identify this project's deployment; they are not credentials. The separate `preview_database_id` preserves the local development database and is not a provisioned remote preview database; keep preview commands in `--local` mode. Apply remote migrations with `npm run db:migrate:remote`, then deploy with `npm run deploy`. These commands mutate the selected Cloudflare account and database. Review the account identifier and migration before running them.
 
 After deployment, verify HTTPS cookie flags, two-browser report isolation, disallowed cross-origin mutations, payload and report limits, 404 behavior for another session's report, rate-limit responses, and cleanup scheduling. Confirm that errors never mark a report as saved and that local evaluation/export still work when the API is unavailable. Do not load-test a live free account to its provider limit.
 

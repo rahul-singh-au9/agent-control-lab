@@ -2,6 +2,8 @@
 
 [![Verify](https://github.com/rahul-singh-au9/agent-control-lab/actions/workflows/verify.yml/badge.svg)](https://github.com/rahul-singh-au9/agent-control-lab/actions/workflows/verify.yml)
 
+[Open Agent Control Lab](https://agent-control-lab.rahulsg1508.workers.dev) · [Build journal](docs/BUILD_JOURNAL.md)
+
 Audit recorded agent actions against approvals and resource state. Compare a static scope policy with a policy that tracks revoked and expired grants, prior dispatches, and content changes. Inspect the evidence for each decision and export a reproducible report.
 
 The application accepts one explicit JSON trace contract. It supports `publish_artifact` actions; other tools remain visibly unsupported. Bundled scenarios are **authored educational fixtures**, not model benchmark results. The evaluator audits recorded proposals. It does not execute tools, call a model, or establish how an agent would behave after an intervention.
@@ -73,7 +75,7 @@ npx wrangler whoami
 npx wrangler d1 create agent-control-lab
 ```
 
-Replace the all-zero `database_id` in `wrangler.jsonc` with the newly created database's ID, then:
+For your own deployment, replace `account_id` and the production `database_id` in `wrangler.jsonc` with your account and newly created database IDs. The checked-in IDs identify this project's deployment and do not grant access. `preview_database_id` is a local development identity that preserves the existing local database; keep preview commands in `--local` mode. Then:
 
 ```sh
 npm run db:migrate:remote

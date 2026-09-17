@@ -34,6 +34,36 @@ function nextProposal(trace: Trace, seq: number, actionId: string): ProposalEven
 afterEach(() => vi.unstubAllGlobals());
 
 describe('strict trace validation', () => {
+  it('initializes without runtime code generation or I/O and preserves validation', async () => {
+    vi.resetModules();
+    vi.stubGlobal('navigator', { userAgent: 'Cloudflare-Workers' });
+    const forbiddenOperation = vi.fn(function () {
+      throw new Error('Validation initialization must be deterministic and local.');
+    });
+    vi.stubGlobal('Function', forbiddenOperation);
+    vi.stubGlobal('fetch', forbiddenOperation);
+    vi.stubGlobal('crypto', {
+      getRandomValues: forbiddenOperation,
+      randomUUID: forbiddenOperation,
+    });
+    const { z } = await import('zod');
+    const previousJitless = z.config().jitless;
+    // The test process has already cached the Node eval probe; explicitly use Worker behavior.
+    z.config({ jitless: true });
+    try {
+      const schema = await import('./schema');
+      schema.initializeTraceValidation();
+      expect(forbiddenOperation).not.toHaveBeenCalled();
+      expect(schema.parseTrace(fixture())).toEqual(fixture());
+      expect(() => schema.parseTrace({ ...fixture(), surprise: true })).toThrow(/Unrecognized/);
+      const duplicate = fixture();
+      duplicate.events[1].id = duplicate.events[0].id;
+      expect(() => schema.parseTrace(duplicate)).toThrow(/Duplicate event/);
+    } finally {
+      z.config({ jitless: previousJitless });
+    }
+  });
+
   it('accepts every fixture and preserves raw data without mutation', () => {
     for (const item of fixtures) {
       const before = JSON.stringify(item.trace);
