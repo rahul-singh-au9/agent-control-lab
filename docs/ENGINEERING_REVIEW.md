@@ -47,4 +47,4 @@ Save requests are not idempotent. A response lost after the database commits can
 
 Trace provenance, labels and declared completeness are assertions. A digest detects changes to the normalized trace, not authenticity. Proposal recommendations neither reserve a grant use nor enforce dispatch-time authorization. This is not a runtime safety gateway or proof of AGI safety.
 
-Remote HTTPS behavior, native binding entitlement, D1/Worker CPU and request limits, deployed scheduled cleanup and hosted CI remain release gates. Automated accessibility checks complement the tested keyboard/visual review; they are not a screen-reader certification or a physical-device test matrix.
+Remote HTTPS behavior, native binding entitlement, D1/Worker CPU and request limits, and deployed scheduled cleanup remain release gates. Hosted Linux CI has passed; the [verification record](VERIFICATION.md) links the run and its tested revision. Automated accessibility checks complement the tested keyboard/visual review; they are not a screen-reader certification or a physical-device test matrix.

@@ -1,5 +1,7 @@
 # Agent Control Lab
 
+[![Verify](https://github.com/rahul-singh-au9/agent-control-lab/actions/workflows/verify.yml/badge.svg)](https://github.com/rahul-singh-au9/agent-control-lab/actions/workflows/verify.yml)
+
 Audit recorded agent actions against approvals and resource state. Compare a static scope policy with a policy that tracks revoked and expired grants, prior dispatches, and content changes. Inspect the evidence for each decision and export a reproducible report.
 
 The application accepts one explicit JSON trace contract. It supports `publish_artifact` actions; other tools remain visibly unsupported. Bundled scenarios are **authored educational fixtures**, not model benchmark results. The evaluator audits recorded proposals. It does not execute tools, call a model, or establish how an agent would behave after an intervention.
@@ -21,6 +23,8 @@ The saved-report cookie is a bearer credential, not a verified user account. Cle
 Use Node 24.21.0 (see `.nvmrc`) and npm. There are no model keys or paid APIs.
 
 ```sh
+git clone https://github.com/rahul-singh-au9/agent-control-lab.git
+cd agent-control-lab
 npm ci
 npm run build
 npm run db:migrate:local
@@ -37,7 +41,7 @@ npm run test:e2e
 npm run test:coverage
 ```
 
-`npm run check` runs typed linting, formatting checks, strict TypeScript checks, engine/API/client tests, and the production build. Browser tests run Chromium, Firefox and WebKit against separate local backends on ports 8788, 8792 and 8793, with `.wrangler/test-<browser>` databases. They do not use the manual preview's records or rate-limit counters. CI is configured to repeat the checks on Linux; hosted execution requires publishing the repository.
+`npm run check` runs typed linting, formatting checks, strict TypeScript checks, engine/API/client tests, and the production build. Browser tests run Chromium, Firefox and WebKit against separate local backends on ports 8788, 8792 and 8793, with `.wrangler/test-<browser>` databases. They do not use the manual preview's records or rate-limit counters. [GitHub CI](https://github.com/rahul-singh-au9/agent-control-lab/actions/workflows/verify.yml) repeats the checks on Linux for pushes and pull requests.
 
 With the local preview running, `npm run record:walkthrough` records real browser workflows to `.artifacts/walkthrough`. The recording uses synthetic examples, saves and deletes its own report, and explicitly injects a storage failure for one demonstration. `node scripts/recovery-rehearsal.mjs` rehearses migration, SQL backup/restore and scheduled cleanup using fresh isolated local databases. `npm run preview:walkthrough` serves the prepared chapter player at `http://127.0.0.1:8795` with video range/seek support. See [Verification](docs/VERIFICATION.md) for results and [Engineering review](docs/ENGINEERING_REVIEW.md) for security and maintenance boundaries.
 

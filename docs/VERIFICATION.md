@@ -2,7 +2,9 @@
 
 Date: 2026-09-17. Scope: local release candidate on macOS ARM64, Node 24.21.0, local Worker/D1/native limiter, Chromium 153, Firefox 155 and WebKit 26.6. Browser versions come from the installed test runtime; this is not a physical-device certification.
 
-**Locally verified; not deployed.** Cloudflare connection was deferred by the owner. The GitHub destination is `rahul-singh-au9`, awaiting write access. The remote database ID remains a placeholder. No public URL, remote database or hosted CI result is claimed.
+**Published and verified locally and in hosted CI; not deployed.** Source is public at [rahul-singh-au9/agent-control-lab](https://github.com/rahul-singh-au9/agent-control-lab). Cloudflare connection was deferred by the owner. The remote database ID remains a placeholder. No live application URL or remote database is claimed.
+
+[Hosted verification run](https://github.com/rahul-singh-au9/agent-control-lab/actions/runs/35198170813) passed on Ubuntu 24.04 for application commit `a29231c`: lint, formatting, TypeScript, production build, **125 unit/API/client/import tests**, dependency audit with **zero reported vulnerabilities**, and **39 browser checks** across Chromium, Firefox and WebKit. The browser suite passed without retries in 1.8 minutes. These checks used isolated local Worker/D1 bindings on the runner, not a public deployment.
 
 ## Executed checks
 
@@ -68,6 +70,5 @@ HTTP 503 responses are deliberately injected only in the failure demonstration. 
 1. Connect Cloudflare; confirm Workers Free and native limiter availability without paid services.
 2. Create remote D1, set its ID, apply the migration and deploy.
 3. Test the actual HTTPS URL one browser project at a time, waiting for the write limiter between projects. Verify cookie flags, persistence/isolation, scheduled cleanup and provider CPU/usage behavior.
-4. Provide GitHub write access for `rahul-singh-au9`, publish and inspect hosted CI.
 
 No claim is made that every possible input was tested or no vulnerabilities remain. The [Engineering review](ENGINEERING_REVIEW.md), [Threat model](THREAT_MODEL.md) and [Operations](OPERATIONS.md) describe anonymous quota consumption, cookie recovery, uncertain non-idempotent saves and unverified trace provenance.
